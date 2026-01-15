@@ -14,6 +14,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   ComposedChart,
+  ReferenceLine,
 } from "recharts";
 import {
   TrendingUp,
@@ -430,16 +431,9 @@ export default function App() {
   const effectiveAnnualContribution = annualContribution ?? 0;
 
   // Generate projection data with unified growth amount field
-  // Only show last 2 historical records + projections
+  // Only show projected data (no historical records)
   const projectionData = (() => {
     if (!latestRecord || records.length === 0) return [];
-
-    // Take only the last 2 historical records
-    const recentHistoricalData = chartData.slice(-2).map(d => ({
-      ...d,
-      projectedNetWorth: undefined as number | undefined,
-      combinedGrowthAmount: d.growthAmount, // Use combined field for bars
-    }));
 
     let currentNetWorth = latestRecord.netWorth;
     let currentYear = latestRecord.year;
@@ -457,34 +451,29 @@ export default function App() {
 
       projectedPoints.push({
         year: currentYear.toString(),
-        netWorth: undefined as number | undefined,
         projectedNetWorth: Math.round(currentNetWorth),
         growthPercentage: effectiveGrowthPercentage,
-        growthAmount: undefined as number | undefined,
         combinedGrowthAmount: Math.round(totalGrowth), // Use combined field for bars
         age: currentAge,
         isProjected: true,
       });
     }
 
-    // Add projected value to last historical point ONLY to connect the lines visually
-    const lastHistorical = recentHistoricalData[recentHistoricalData.length - 1];
-    if (lastHistorical) {
-      lastHistorical.projectedNetWorth = lastHistorical.netWorth;
-    }
-
-    return [...recentHistoricalData, ...projectedPoints];
+    return projectedPoints;
   })();
 
   // Calculate projected milestones using growth percentage + annual contribution
   const projectedMilestones = (() => {
-    if (!latestRecord) return { fiveMillion: null, tenMillion: null };
+    if (!latestRecord) return { fiveMillion: null, tenMillion: null, twentyMillion: null, fortyMillion: null, eightyMillion: null };
 
     let currentNetWorth = latestRecord.netWorth;
     let yearsTo5M = null;
     let yearsTo10M = null;
+    let yearsTo20M = null;
+    let yearsTo40M = null;
+    let yearsTo80M = null;
 
-    for (let i = 1; i <= 50; i++) {
+    for (let i = 1; i <= 100; i++) {
       const investmentGrowth = currentNetWorth * (effectiveGrowthPercentage / 100);
       currentNetWorth += investmentGrowth + effectiveAnnualContribution;
       if (currentNetWorth >= 5000000 && yearsTo5M === null) {
@@ -492,11 +481,20 @@ export default function App() {
       }
       if (currentNetWorth >= 10000000 && yearsTo10M === null) {
         yearsTo10M = { years: i, year: latestRecord.year + i, age: latestRecord.age + i };
+      }
+      if (currentNetWorth >= 20000000 && yearsTo20M === null) {
+        yearsTo20M = { years: i, year: latestRecord.year + i, age: latestRecord.age + i };
+      }
+      if (currentNetWorth >= 40000000 && yearsTo40M === null) {
+        yearsTo40M = { years: i, year: latestRecord.year + i, age: latestRecord.age + i };
+      }
+      if (currentNetWorth >= 80000000 && yearsTo80M === null) {
+        yearsTo80M = { years: i, year: latestRecord.year + i, age: latestRecord.age + i };
         break;
       }
     }
 
-    return { fiveMillion: yearsTo5M, tenMillion: yearsTo10M };
+    return { fiveMillion: yearsTo5M, tenMillion: yearsTo10M, twentyMillion: yearsTo20M, fortyMillion: yearsTo40M, eightyMillion: yearsTo80M };
   })();
 
   return (
@@ -765,14 +763,6 @@ export default function App() {
                       placeholder={avgGrowthPercentage.toFixed(1)}
                       className="w-20 bg-navy-800/50 border border-navy-600 rounded-lg px-3 py-1.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
                     />
-                    {customGrowthPercentage !== null && (
-                      <button
-                        onClick={() => handleGrowthPercentageChange(null)}
-                        className="text-navy-400 hover:text-white text-xs"
-                      >
-                        Reset
-                      </button>
-                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <label className="text-navy-300 text-sm">Annual +$:</label>
@@ -785,77 +775,112 @@ export default function App() {
                       placeholder="0"
                       className="w-24 bg-navy-800/50 border border-navy-600 rounded-lg px-3 py-1.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
                     />
-                    {annualContribution !== null && (
-                      <button
-                        onClick={() => handleAnnualContributionChange(null)}
-                        className="text-navy-400 hover:text-white text-xs"
-                      >
-                        Reset
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-navy-800/30 rounded-lg">
-                    <span className="text-navy-400 text-sm">Last Year Growth:</span>
-                    <span className="text-gold-400 font-semibold text-sm">{formatCurrency(lastYearGrowthAmount)}</span>
                   </div>
                 </div>
               </div>
 
               {/* Milestone Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                <div className="bg-navy-800/40 border border-emerald-500/20 rounded-xl p-4">
-                  <p className="text-navy-400 text-sm mb-1">Reach $5 Million</p>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+                <div className="bg-navy-800/40 border border-emerald-500/20 rounded-xl p-3">
+                  <p className="text-navy-400 text-xs mb-1">$5 Million</p>
                   {projectedMilestones.fiveMillion ? (
                     latestRecord && latestRecord.netWorth >= 5000000 ? (
-                      <p className="text-emerald-400 font-display text-xl">✓ Already achieved!</p>
+                      <p className="text-emerald-400 font-display text-lg">✓ Achieved</p>
                     ) : (
                       <>
-                        <p className="text-white font-display text-2xl">
+                        <p className="text-white font-display text-xl">
                           {projectedMilestones.fiveMillion.year}
                         </p>
-                        <p className="text-emerald-400 text-sm">
-                          In {projectedMilestones.fiveMillion.years} years (age {projectedMilestones.fiveMillion.age})
+                        <p className="text-emerald-400 text-xs">
+                          {projectedMilestones.fiveMillion.years}y (age {projectedMilestones.fiveMillion.age})
                         </p>
                       </>
                     )
                   ) : (
-                    <p className="text-navy-500">Not within projection period</p>
+                    <p className="text-navy-500 text-sm">—</p>
                   )}
                 </div>
-                <div className="bg-navy-800/40 border border-emerald-500/20 rounded-xl p-4">
-                  <p className="text-navy-400 text-sm mb-1">Reach $10 Million</p>
+                <div className="bg-navy-800/40 border border-emerald-500/20 rounded-xl p-3">
+                  <p className="text-navy-400 text-xs mb-1">$10 Million</p>
                   {projectedMilestones.tenMillion ? (
                     latestRecord && latestRecord.netWorth >= 10000000 ? (
-                      <p className="text-emerald-400 font-display text-xl">✓ Already achieved!</p>
+                      <p className="text-emerald-400 font-display text-lg">✓ Achieved</p>
                     ) : (
                       <>
-                        <p className="text-white font-display text-2xl">
+                        <p className="text-white font-display text-xl">
                           {projectedMilestones.tenMillion.year}
                         </p>
-                        <p className="text-emerald-400 text-sm">
-                          In {projectedMilestones.tenMillion.years} years (age {projectedMilestones.tenMillion.age})
+                        <p className="text-emerald-400 text-xs">
+                          {projectedMilestones.tenMillion.years}y (age {projectedMilestones.tenMillion.age})
                         </p>
                       </>
                     )
                   ) : (
-                    <p className="text-navy-500">Not within projection period</p>
+                    <p className="text-navy-500 text-sm">—</p>
+                  )}
+                </div>
+                <div className="bg-navy-800/40 border border-emerald-500/20 rounded-xl p-3">
+                  <p className="text-navy-400 text-xs mb-1">$20 Million</p>
+                  {projectedMilestones.twentyMillion ? (
+                    latestRecord && latestRecord.netWorth >= 20000000 ? (
+                      <p className="text-emerald-400 font-display text-lg">✓ Achieved</p>
+                    ) : (
+                      <>
+                        <p className="text-white font-display text-xl">
+                          {projectedMilestones.twentyMillion.year}
+                        </p>
+                        <p className="text-emerald-400 text-xs">
+                          {projectedMilestones.twentyMillion.years}y (age {projectedMilestones.twentyMillion.age})
+                        </p>
+                      </>
+                    )
+                  ) : (
+                    <p className="text-navy-500 text-sm">—</p>
+                  )}
+                </div>
+                <div className="bg-navy-800/40 border border-emerald-500/20 rounded-xl p-3">
+                  <p className="text-navy-400 text-xs mb-1">$40 Million</p>
+                  {projectedMilestones.fortyMillion ? (
+                    latestRecord && latestRecord.netWorth >= 40000000 ? (
+                      <p className="text-emerald-400 font-display text-lg">✓ Achieved</p>
+                    ) : (
+                      <>
+                        <p className="text-white font-display text-xl">
+                          {projectedMilestones.fortyMillion.year}
+                        </p>
+                        <p className="text-emerald-400 text-xs">
+                          {projectedMilestones.fortyMillion.years}y (age {projectedMilestones.fortyMillion.age})
+                        </p>
+                      </>
+                    )
+                  ) : (
+                    <p className="text-navy-500 text-sm">—</p>
+                  )}
+                </div>
+                <div className="bg-navy-800/40 border border-emerald-500/20 rounded-xl p-3">
+                  <p className="text-navy-400 text-xs mb-1">$80 Million</p>
+                  {projectedMilestones.eightyMillion ? (
+                    latestRecord && latestRecord.netWorth >= 80000000 ? (
+                      <p className="text-emerald-400 font-display text-lg">✓ Achieved</p>
+                    ) : (
+                      <>
+                        <p className="text-white font-display text-xl">
+                          {projectedMilestones.eightyMillion.year}
+                        </p>
+                        <p className="text-emerald-400 text-xs">
+                          {projectedMilestones.eightyMillion.years}y (age {projectedMilestones.eightyMillion.age})
+                        </p>
+                      </>
+                    )
+                  ) : (
+                    <p className="text-navy-500 text-sm">—</p>
                   )}
                 </div>
               </div>
 
               <div className="h-96">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={projectionData}>
-                    <defs>
-                      <linearGradient id="historicalBarGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.8} />
-                        <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.3} />
-                      </linearGradient>
-                      <linearGradient id="projectedBarGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#10b981" stopOpacity={0.8} />
-                        <stop offset="100%" stopColor="#10b981" stopOpacity={0.3} />
-                      </linearGradient>
-                    </defs>
+                  <ComposedChart data={projectionData} margin={{ top: 30, right: 20, bottom: 5, left: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                     <XAxis
                       dataKey="year"
@@ -870,36 +895,92 @@ export default function App() {
                       tickFormatter={(value) => formatCurrency(value)}
                     />
                     <Tooltip content={<CustomTooltip />} />
-                    {/* Single unified bar with conditional coloring - same scale as net worth */}
-                    <Bar
-                      dataKey="combinedGrowthAmount"
-                      radius={[4, 4, 0, 0]}
-                      shape={(props: { x?: number; y?: number; width?: number; height?: number; payload?: { isProjected?: boolean } }) => {
-                        const { x = 0, y = 0, width = 0, height = 0, payload } = props;
-                        const isProjected = payload?.isProjected;
-                        return (
-                          <rect
-                            x={x}
-                            y={y}
-                            width={width}
-                            height={height}
-                            fill={isProjected ? "url(#projectedBarGradient)" : "url(#historicalBarGradient)"}
-                            rx={4}
-                            ry={4}
-                          />
-                        );
-                      }}
-                    />
-                    {/* Historical Net Worth Line */}
-                    <Line
-                      type="monotone"
-                      dataKey="netWorth"
-                      stroke="#eab308"
-                      strokeWidth={3}
-                      dot={{ fill: "#eab308", strokeWidth: 2, r: 4 }}
-                      activeDot={{ r: 6, fill: "#fde047" }}
-                      connectNulls={false}
-                    />
+
+                    {/* $5M Milestone Label */}
+                    {projectedMilestones.fiveMillion && !(latestRecord && latestRecord.netWorth >= 5000000) &&
+                      projectionData.some(d => d.year === projectedMilestones.fiveMillion!.year.toString()) && (
+                      <ReferenceLine
+                        x={projectedMilestones.fiveMillion.year.toString()}
+                        stroke="rgba(255, 255, 255, 0.08)"
+                        strokeWidth={1}
+                        label={{
+                          value: "$5M",
+                          position: "top",
+                          fill: "#ffffff",
+                          fontSize: 12,
+                          fontWeight: "bold",
+                        }}
+                      />
+                    )}
+
+                    {/* $10M Milestone Label */}
+                    {projectedMilestones.tenMillion && !(latestRecord && latestRecord.netWorth >= 10000000) &&
+                      projectionData.some(d => d.year === projectedMilestones.tenMillion!.year.toString()) && (
+                      <ReferenceLine
+                        x={projectedMilestones.tenMillion.year.toString()}
+                        stroke="rgba(255, 255, 255, 0.08)"
+                        strokeWidth={1}
+                        label={{
+                          value: "$10M",
+                          position: "top",
+                          fill: "#ffffff",
+                          fontSize: 12,
+                          fontWeight: "bold",
+                        }}
+                      />
+                    )}
+
+                    {/* $20M Milestone Label */}
+                    {projectedMilestones.twentyMillion && !(latestRecord && latestRecord.netWorth >= 20000000) &&
+                      projectionData.some(d => d.year === projectedMilestones.twentyMillion!.year.toString()) && (
+                      <ReferenceLine
+                        x={projectedMilestones.twentyMillion.year.toString()}
+                        stroke="rgba(255, 255, 255, 0.08)"
+                        strokeWidth={1}
+                        label={{
+                          value: "$20M",
+                          position: "top",
+                          fill: "#ffffff",
+                          fontSize: 12,
+                          fontWeight: "bold",
+                        }}
+                      />
+                    )}
+
+                    {/* $40M Milestone Label */}
+                    {projectedMilestones.fortyMillion && !(latestRecord && latestRecord.netWorth >= 40000000) &&
+                      projectionData.some(d => d.year === projectedMilestones.fortyMillion!.year.toString()) && (
+                      <ReferenceLine
+                        x={projectedMilestones.fortyMillion.year.toString()}
+                        stroke="rgba(255, 255, 255, 0.08)"
+                        strokeWidth={1}
+                        label={{
+                          value: "$40M",
+                          position: "top",
+                          fill: "#ffffff",
+                          fontSize: 12,
+                          fontWeight: "bold",
+                        }}
+                      />
+                    )}
+
+                    {/* $80M Milestone Label */}
+                    {projectedMilestones.eightyMillion && !(latestRecord && latestRecord.netWorth >= 80000000) &&
+                      projectionData.some(d => d.year === projectedMilestones.eightyMillion!.year.toString()) && (
+                      <ReferenceLine
+                        x={projectedMilestones.eightyMillion.year.toString()}
+                        stroke="rgba(255, 255, 255, 0.08)"
+                        strokeWidth={1}
+                        label={{
+                          value: "$80M",
+                          position: "top",
+                          fill: "#ffffff",
+                          fontSize: 12,
+                          fontWeight: "bold",
+                        }}
+                      />
+                    )}
+
                     {/* Projected Net Worth Line */}
                     <Line
                       type="monotone"
@@ -916,20 +997,8 @@ export default function App() {
               </div>
               <div className="flex flex-wrap justify-center gap-6 mt-4">
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-1 bg-gold-500 rounded-full" />
-                  <span className="text-navy-300 text-sm">Historical Net Worth</span>
-                </div>
-                <div className="flex items-center gap-2">
                   <div className="w-4 h-1 bg-emerald-500 rounded-full" style={{ backgroundImage: 'repeating-linear-gradient(90deg, #10b981 0, #10b981 4px, transparent 4px, transparent 6px)' }} />
                   <span className="text-navy-300 text-sm">Projected Net Worth</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-purple-500 rounded" />
-                  <span className="text-navy-300 text-sm">Historical Growth</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-emerald-500 rounded" />
-                  <span className="text-navy-300 text-sm">Projected Growth</span>
                 </div>
               </div>
             </div>
