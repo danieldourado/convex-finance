@@ -94,3 +94,38 @@ export const seedData = mutation({
     return { message: "Data seeded successfully" };
   },
 });
+
+// User Settings queries and mutations
+export const getSettings = query({
+  args: {},
+  handler: async (ctx) => {
+    const settings = await ctx.db.query("userSettings").first();
+    return settings ?? { projectionYears: 10, customGrowthPercentage: null, annualContribution: null };
+  },
+});
+
+export const updateSettings = mutation({
+  args: {
+    projectionYears: v.number(),
+    customGrowthPercentage: v.optional(v.number()),
+    annualContribution: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.query("userSettings").first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        projectionYears: args.projectionYears,
+        customGrowthPercentage: args.customGrowthPercentage,
+        annualContribution: args.annualContribution,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("userSettings", {
+      projectionYears: args.projectionYears,
+      customGrowthPercentage: args.customGrowthPercentage,
+      annualContribution: args.annualContribution,
+    });
+  },
+});

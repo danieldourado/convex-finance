@@ -9,4 +9,10 @@ export default defineSchema({
     growthPercentage: v.optional(v.number()),
     growthAmount: v.optional(v.number()),
   }).index("by_year", ["year"]),
+
+  userSettings: defineTable({
+    projectionYears: v.number(),
+    customGrowthPercentage: v.optional(v.number()),
+    annualContribution: v.optional(v.number()), // Fixed annual contribution amount
+  }),
 });

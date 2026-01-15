@@ -41,7 +41,10 @@ type FinancialRecord = {
 
 function formatCurrency(value: number): string {
   if (value >= 1000000) {
-    return `$${(value / 1000000).toFixed(2)}M`;
+    const millions = value / 1000000;
+    // Remove trailing zeros: 13.50 -> 13.5, 13.00 -> 13
+    const formatted = millions.toFixed(2).replace(/\.?0+$/, '');
+    return `$${formatted}M`;
   }
   if (value >= 1000) {
     return `$${(value / 1000).toFixed(0)}K`;
@@ -86,7 +89,7 @@ const CustomTooltip = ({ active, payload, label }: {
             {entry.dataKey === "projectedNetWorth" && "Projected Net Worth: "}
             {entry.dataKey === "growthPercentage" && "Growth: "}
             {entry.dataKey === "growthAmount" && "Growth Amount: "}
-            {entry.dataKey === "projectedGrowthAmount" && "Projected Growth: "}
+            {entry.dataKey === "combinedGrowthAmount" && (isProjected ? "Projected Growth: " : "Growth Amount: ")}
             <span className={`font-semibold ${isProjected ? "text-emerald-300" : "text-gold-300"}`}>
               {entry.dataKey === "growthPercentage"
                 ? `${entry.value}%`
@@ -351,9 +354,51 @@ export default function App() {
   const addRecord = useMutation(api.financialRecords.add);
   const removeRecord = useMutation(api.financialRecords.remove);
   const seedData = useMutation(api.financialRecords.seedData);
+  const settings = useQuery(api.financialRecords.getSettings);
+  const updateSettings = useMutation(api.financialRecords.updateSettings);
 
   const [projectionYears, setProjectionYears] = useState(10);
   const [customGrowthPercentage, setCustomGrowthPercentage] = useState<number | null>(null);
+  const [annualContribution, setAnnualContribution] = useState<number | null>(null);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+
+  // Load settings from database
+  useEffect(() => {
+    if (settings && !settingsLoaded) {
+      setProjectionYears(settings.projectionYears);
+      setCustomGrowthPercentage(settings.customGrowthPercentage ?? null);
+      setAnnualContribution(settings.annualContribution ?? null);
+      setSettingsLoaded(true);
+    }
+  }, [settings, settingsLoaded]);
+
+  // Save settings to database when they change
+  const handleProjectionYearsChange = (years: number) => {
+    setProjectionYears(years);
+    updateSettings({
+      projectionYears: years,
+      customGrowthPercentage: customGrowthPercentage ?? undefined,
+      annualContribution: annualContribution ?? undefined,
+    });
+  };
+
+  const handleGrowthPercentageChange = (percentage: number | null) => {
+    setCustomGrowthPercentage(percentage);
+    updateSettings({
+      projectionYears,
+      customGrowthPercentage: percentage ?? undefined,
+      annualContribution: annualContribution ?? undefined,
+    });
+  };
+
+  const handleAnnualContributionChange = (contribution: number | null) => {
+    setAnnualContribution(contribution);
+    updateSettings({
+      projectionYears,
+      customGrowthPercentage: customGrowthPercentage ?? undefined,
+      annualContribution: contribution ?? undefined,
+    });
+  };
 
   const chartData = records.map((r) => ({
     year: r.year.toString(),
@@ -381,14 +426,19 @@ export default function App() {
   // Use custom growth percentage or average
   const effectiveGrowthPercentage = customGrowthPercentage ?? avgGrowthPercentage;
 
-  // Generate projection data with growth percentage calculation
+  // Effective annual contribution (default to 0 if not set)
+  const effectiveAnnualContribution = annualContribution ?? 0;
+
+  // Generate projection data with unified growth amount field
+  // Only show last 2 historical records + projections
   const projectionData = (() => {
     if (!latestRecord || records.length === 0) return [];
 
-    const historicalData = chartData.map(d => ({
+    // Take only the last 2 historical records
+    const recentHistoricalData = chartData.slice(-2).map(d => ({
       ...d,
       projectedNetWorth: undefined as number | undefined,
-      projectedGrowthAmount: undefined as number | undefined,
+      combinedGrowthAmount: d.growthAmount, // Use combined field for bars
     }));
 
     let currentNetWorth = latestRecord.netWorth;
@@ -400,9 +450,10 @@ export default function App() {
     for (let i = 1; i <= projectionYears; i++) {
       currentYear++;
       currentAge++;
-      // Calculate growth amount based on percentage of current net worth
-      const growth = currentNetWorth * (effectiveGrowthPercentage / 100);
-      currentNetWorth += growth;
+      // Calculate growth amount based on percentage of current net worth + annual contribution
+      const investmentGrowth = currentNetWorth * (effectiveGrowthPercentage / 100);
+      const totalGrowth = investmentGrowth + effectiveAnnualContribution;
+      currentNetWorth += totalGrowth;
 
       projectedPoints.push({
         year: currentYear.toString(),
@@ -410,23 +461,22 @@ export default function App() {
         projectedNetWorth: Math.round(currentNetWorth),
         growthPercentage: effectiveGrowthPercentage,
         growthAmount: undefined as number | undefined,
-        projectedGrowthAmount: Math.round(growth),
+        combinedGrowthAmount: Math.round(totalGrowth), // Use combined field for bars
         age: currentAge,
         isProjected: true,
       });
     }
 
-    // Add last historical point with projected value to connect the lines
-    const lastHistorical = historicalData[historicalData.length - 1];
+    // Add projected value to last historical point ONLY to connect the lines visually
+    const lastHistorical = recentHistoricalData[recentHistoricalData.length - 1];
     if (lastHistorical) {
       lastHistorical.projectedNetWorth = lastHistorical.netWorth;
-      lastHistorical.projectedGrowthAmount = lastHistorical.growthAmount;
     }
 
-    return [...historicalData, ...projectedPoints];
+    return [...recentHistoricalData, ...projectedPoints];
   })();
 
-  // Calculate projected milestones using growth percentage
+  // Calculate projected milestones using growth percentage + annual contribution
   const projectedMilestones = (() => {
     if (!latestRecord) return { fiveMillion: null, tenMillion: null };
 
@@ -435,7 +485,8 @@ export default function App() {
     let yearsTo10M = null;
 
     for (let i = 1; i <= 50; i++) {
-      currentNetWorth *= (1 + effectiveGrowthPercentage / 100);
+      const investmentGrowth = currentNetWorth * (effectiveGrowthPercentage / 100);
+      currentNetWorth += investmentGrowth + effectiveAnnualContribution;
       if (currentNetWorth >= 5000000 && yearsTo5M === null) {
         yearsTo5M = { years: i, year: latestRecord.year + i, age: latestRecord.age + i };
       }
@@ -683,6 +734,7 @@ export default function App() {
                     </h3>
                     <p className="text-emerald-400/70 text-sm">
                       Based on {effectiveGrowthPercentage.toFixed(1)}% annual growth
+                      {effectiveAnnualContribution > 0 && ` + ${formatCurrency(effectiveAnnualContribution)}/year`}
                     </p>
                   </div>
                 </div>
@@ -694,7 +746,7 @@ export default function App() {
                     <label className="text-navy-300 text-sm">Years:</label>
                     <select
                       value={projectionYears}
-                      onChange={(e) => setProjectionYears(parseInt(e.target.value))}
+                      onChange={(e) => handleProjectionYearsChange(parseInt(e.target.value))}
                       className="bg-navy-800/50 border border-navy-600 rounded-lg px-3 py-1.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
                     >
                       {[5, 10, 15, 20, 25, 30].map(y => (
@@ -708,14 +760,34 @@ export default function App() {
                       type="number"
                       value={customGrowthPercentage ?? ""}
                       onChange={(e) => {
-                        setCustomGrowthPercentage(e.target.value ? parseFloat(e.target.value) : null);
+                        handleGrowthPercentageChange(e.target.value ? parseFloat(e.target.value) : null);
                       }}
                       placeholder={avgGrowthPercentage.toFixed(1)}
                       className="w-20 bg-navy-800/50 border border-navy-600 rounded-lg px-3 py-1.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
                     />
                     {customGrowthPercentage !== null && (
                       <button
-                        onClick={() => setCustomGrowthPercentage(null)}
+                        onClick={() => handleGrowthPercentageChange(null)}
+                        className="text-navy-400 hover:text-white text-xs"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-navy-300 text-sm">Annual +$:</label>
+                    <input
+                      type="number"
+                      value={annualContribution ?? ""}
+                      onChange={(e) => {
+                        handleAnnualContributionChange(e.target.value ? parseFloat(e.target.value) : null);
+                      }}
+                      placeholder="0"
+                      className="w-24 bg-navy-800/50 border border-navy-600 rounded-lg px-3 py-1.5 text-white text-sm focus:border-emerald-500 focus:outline-none"
+                    />
+                    {annualContribution !== null && (
+                      <button
+                        onClick={() => handleAnnualContributionChange(null)}
                         className="text-navy-400 hover:text-white text-xs"
                       >
                         Reset
@@ -792,38 +864,34 @@ export default function App() {
                       axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
                     />
                     <YAxis
-                      yAxisId="left"
-                      stroke="#829ab1"
-                      tick={{ fill: "#829ab1" }}
-                      axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                      tickFormatter={(value) => formatCurrency(value)}
-                    />
-                    <YAxis
-                      yAxisId="right"
-                      orientation="right"
                       stroke="#829ab1"
                       tick={{ fill: "#829ab1" }}
                       axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
                       tickFormatter={(value) => formatCurrency(value)}
                     />
                     <Tooltip content={<CustomTooltip />} />
-                    {/* Historical Growth Amount Bars */}
+                    {/* Single unified bar with conditional coloring - same scale as net worth */}
                     <Bar
-                      yAxisId="right"
-                      dataKey="growthAmount"
-                      fill="url(#historicalBarGradient)"
+                      dataKey="combinedGrowthAmount"
                       radius={[4, 4, 0, 0]}
-                    />
-                    {/* Projected Growth Amount Bars */}
-                    <Bar
-                      yAxisId="right"
-                      dataKey="projectedGrowthAmount"
-                      fill="url(#projectedBarGradient)"
-                      radius={[4, 4, 0, 0]}
+                      shape={(props: { x?: number; y?: number; width?: number; height?: number; payload?: { isProjected?: boolean } }) => {
+                        const { x = 0, y = 0, width = 0, height = 0, payload } = props;
+                        const isProjected = payload?.isProjected;
+                        return (
+                          <rect
+                            x={x}
+                            y={y}
+                            width={width}
+                            height={height}
+                            fill={isProjected ? "url(#projectedBarGradient)" : "url(#historicalBarGradient)"}
+                            rx={4}
+                            ry={4}
+                          />
+                        );
+                      }}
                     />
                     {/* Historical Net Worth Line */}
                     <Line
-                      yAxisId="left"
                       type="monotone"
                       dataKey="netWorth"
                       stroke="#eab308"
@@ -834,7 +902,6 @@ export default function App() {
                     />
                     {/* Projected Net Worth Line */}
                     <Line
-                      yAxisId="left"
                       type="monotone"
                       dataKey="projectedNetWorth"
                       stroke="#10b981"
@@ -849,11 +916,11 @@ export default function App() {
               </div>
               <div className="flex flex-wrap justify-center gap-6 mt-4">
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-gold-500 rounded-full" />
+                  <div className="w-4 h-1 bg-gold-500 rounded-full" />
                   <span className="text-navy-300 text-sm">Historical Net Worth</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-emerald-500 rounded-full" />
+                  <div className="w-4 h-1 bg-emerald-500 rounded-full" style={{ backgroundImage: 'repeating-linear-gradient(90deg, #10b981 0, #10b981 4px, transparent 4px, transparent 6px)' }} />
                   <span className="text-navy-300 text-sm">Projected Net Worth</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -861,7 +928,7 @@ export default function App() {
                   <span className="text-navy-300 text-sm">Historical Growth</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-emerald-600 rounded" />
+                  <div className="w-4 h-4 bg-emerald-500 rounded" />
                   <span className="text-navy-300 text-sm">Projected Growth</span>
                 </div>
               </div>
